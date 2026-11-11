@@ -202,7 +202,8 @@ const openapi = {
         content: jsonContent(ref('Error'), { message: 'Job not found' }),
       },
       TooManyRequests: {
-        description: 'Rate limit exceeded (20 requests per 15 minutes per IP)',
+        description:
+          'Rate limit exceeded (per IP per 15 minutes: 20 requests in production, 100 in development)',
         content: jsonContent(ref('Error'), {
           message: 'Too many attempts. Please try again in a few minutes.',
         }),

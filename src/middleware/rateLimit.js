@@ -10,7 +10,9 @@ const config = require('../config/env');
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  limit: 20, // max requests per IP per window
+  // Max requests per IP per window. Strict in production; looser in
+  // development so testing login/register by hand doesn't lock you out.
+  limit: config.isProduction ? 20 : 100,
   standardHeaders: 'draft-8', // send RateLimit-* headers so clients know their quota
   legacyHeaders: false,
   message: { message: 'Too many attempts. Please try again in a few minutes.' },

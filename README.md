@@ -120,7 +120,7 @@ Errors are returned as JSON: `{ "message": "...", "details": [{ "field", "messag
 | 403    | Logged in, but not allowed: wrong role, or not the job's owner   |
 | 404    | Route or resource not found                                      |
 | 409    | Conflict, e.g. email already registered                          |
-| 429    | Too many login/register attempts (20 per 15 minutes per IP)      |
+| 429    | Too many login/register attempts (per IP per 15 minutes: 20 in production, 100 in development) |
 
 ## How it works
 
@@ -163,7 +163,7 @@ tests/          Jest + Supertest tests
 1. ✅ Scaffold: Express app, MongoDB connection, health check
 2. ✅ Authentication: register/login, JWT, role-based access
 3. ✅ Jobs: CRUD, search, filters, pagination, Swagger
-4. Jobs frontend
+4. ✅ Jobs frontend (in the frontend repo)
 5. Applications: apply with resume, recruiter review
 6. Profile and UI polish
 7. Testing

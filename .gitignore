@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+
+# Environment variables (secrets!), only the example file is committed
+.env
+.env.*
+!.env.example
+
+# Uploaded files (resumes) are runtime data, not source code
+uploads/
+
+# Test coverage and logs
+coverage/
+logs/
+*.log
+npm-debug.log*
+
+# OS / editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+.qodo/

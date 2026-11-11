@@ -1,0 +1,31 @@
+{
+  "name": "jobconnect-backend",
+  "version": "1.0.0",
+  "description": "REST API for JobConnect — a job portal where recruiters post jobs and job seekers search and apply.",
+  "main": "src/server.js",
+  "private": true,
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "keywords": [
+    "express",
+    "mongodb",
+    "mongoose",
+    "rest-api",
+    "job-portal"
+  ],
+  "author": "sudhan-murugan",
+  "license": "MIT",
+  "dependencies": {
+    "cors": "^2.8.6",
+    "dotenv": "^18.0.10",
+    "express": "^5.3.0",
+    "helmet": "^8.3.0",
+    "mongoose": "^9.12.1",
+    "morgan": "^1.12.1"
+  }
+}

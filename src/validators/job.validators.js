@@ -3,6 +3,7 @@
  */
 const { body, param, query } = require('express-validator');
 const { JOB_TYPES, PAGINATION } = require('../utils/constants');
+const { skillsRules } = require('./common');
 
 const JOB_TYPE_VALUES = Object.values(JOB_TYPES);
 const jobTypeMessage = `Job type must be one of: ${JOB_TYPE_VALUES.join(', ')}`;
@@ -10,19 +11,6 @@ const jobTypeMessage = `Job type must be one of: ${JOB_TYPE_VALUES.join(', ')}`;
 // :id in the URL must look like a MongoDB ObjectId (24 hex characters).
 // Without this check, "/api/jobs/abc" would reach the database and fail there.
 const jobIdRule = param('id').isMongoId().withMessage('Invalid job id');
-
-// Removes duplicate skills, ignoring case ("React" and "react" count as one).
-function uniqueSkills(skills) {
-  if (!Array.isArray(skills)) return skills;
-  const seen = new Set();
-  return skills.filter((skill) => {
-    if (typeof skill !== 'string') return true; // left for the validator to reject
-    const key = skill.toLowerCase();
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-}
 
 // Used for both create (POST) and full update (PUT): PUT replaces the job, so
 // it needs the same complete set of fields.
@@ -57,21 +45,7 @@ const jobBodyRules = [
 
   body('jobType').isIn(JOB_TYPE_VALUES).withMessage(jobTypeMessage),
 
-  // Each skill: "skills.*" applies the rule to every item in the array.
-  body('skills.*')
-    .isString()
-    .withMessage('Each skill must be text')
-    .bail()
-    .trim()
-    .notEmpty()
-    .withMessage('Skills cannot be empty')
-    .isLength({ max: 40 })
-    .withMessage('Each skill must be at most 40 characters'),
-  body('skills')
-    .optional()
-    .isArray({ max: 20 })
-    .withMessage('Skills must be a list of at most 20 items')
-    .customSanitizer(uniqueSkills),
+  ...skillsRules,
 
   // Salary is optional, but if it's given, min and max are both required.
   // (min/max are marked optional() so that a job WITHOUT a salary doesn't get

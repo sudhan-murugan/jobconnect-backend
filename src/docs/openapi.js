@@ -34,6 +34,7 @@ const openapi = {
     { name: 'Auth', description: 'Register, log in and get the current user' },
     { name: 'Jobs', description: 'Browse, search and manage job posts' },
     { name: 'Applications', description: 'Apply to jobs, track applications and review applicants' },
+    { name: 'Users', description: "The logged-in user's profile and profile resume" },
   ],
   components: {
     securitySchemes: {
@@ -53,7 +54,21 @@ const openapi = {
           headline: { type: 'string', example: 'Frontend developer' },
           skills: { type: 'array', items: { type: 'string' }, example: ['React', 'CSS'] },
           location: { type: 'string', example: 'Singapore' },
-          resumeUrl: { type: 'string', nullable: true, example: null },
+          resume: {
+            type: 'object',
+            description: 'Profile resume (job seekers only); absent until uploaded',
+            properties: {
+              filename: { type: 'string', example: 'Asha Tan - Resume.pdf' },
+              size: { type: 'integer', description: 'Bytes', example: 84213 },
+              uploadedAt: { type: 'string', format: 'date-time' },
+            },
+          },
+          resumeUrl: {
+            type: 'string',
+            nullable: true,
+            description: 'Download path for your own profile resume, or null',
+            example: '/api/users/me/resume',
+          },
           createdAt: { type: 'string', format: 'date-time' },
           updatedAt: { type: 'string', format: 'date-time' },
         },
@@ -528,8 +543,9 @@ const openapi = {
         tags: ['Applications'],
         summary: 'Apply to a job (job seekers only)',
         description:
-          `Send as \`multipart/form-data\`. The resume must be a PDF of at most ${MAX_RESUME_SIZE_MB} MB ` +
-          '(checked by type, extension and file content). One application per job.',
+          `Send as \`multipart/form-data\`. Either upload \`resume\` (a PDF of at most ${MAX_RESUME_SIZE_MB} MB, ` +
+          'checked by type, extension and file content) or set `useProfileResume=true` to send a copy of the ' +
+          'resume saved on your profile. One application per job.',
         security: [{ bearerAuth: [] }],
         requestBody: {
           required: true,
@@ -537,9 +553,12 @@ const openapi = {
             'multipart/form-data': {
               schema: {
                 type: 'object',
-                required: ['resume'],
                 properties: {
-                  resume: { type: 'string', format: 'binary', description: 'PDF file' },
+                  resume: { type: 'string', format: 'binary', description: 'PDF file (takes priority if both are sent)' },
+                  useProfileResume: {
+                    type: 'boolean',
+                    description: 'Send a copy of your profile resume instead of uploading a file',
+                  },
                   coverNote: { type: 'string', maxLength: 2000 },
                 },
               },
@@ -672,6 +691,92 @@ const openapi = {
             content: { 'application/pdf': { schema: { type: 'string', format: 'binary' } } },
           },
           400: response('BadRequest'),
+          401: response('Unauthorized'),
+          403: response('Forbidden'),
+          404: response('NotFound'),
+        },
+      },
+    },
+    '/api/users/me': {
+      put: {
+        tags: ['Users'],
+        summary: 'Update your profile',
+        description:
+          'Replaces the editable profile fields; optional fields that are left out are cleared. Email, password and role cannot be changed here.',
+        security: [{ bearerAuth: [] }],
+        requestBody: {
+          required: true,
+          content: jsonContent(
+            {
+              type: 'object',
+              required: ['name'],
+              properties: {
+                name: { type: 'string', maxLength: 100 },
+                headline: { type: 'string', maxLength: 150 },
+                location: { type: 'string', maxLength: 100 },
+                skills: { type: 'array', maxItems: 20, items: { type: 'string', maxLength: 40 } },
+              },
+            },
+            {
+              name: 'Asha Tan',
+              headline: 'Frontend developer',
+              location: 'Singapore',
+              skills: ['React', 'TypeScript'],
+            }
+          ),
+        },
+        responses: {
+          200: { description: 'Profile updated', content: jsonContent({ type: 'object', properties: { user: ref('User') } }) },
+          400: response('BadRequest'),
+          401: response('Unauthorized'),
+        },
+      },
+    },
+
+    '/api/users/me/resume': {
+      post: {
+        tags: ['Users'],
+        summary: 'Upload or replace your profile resume (job seekers only)',
+        description: `\`multipart/form-data\` with a \`resume\` PDF of at most ${MAX_RESUME_SIZE_MB} MB.`,
+        security: [{ bearerAuth: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            'multipart/form-data': {
+              schema: {
+                type: 'object',
+                required: ['resume'],
+                properties: { resume: { type: 'string', format: 'binary', description: 'PDF file' } },
+              },
+            },
+          },
+        },
+        responses: {
+          200: { description: 'Resume saved', content: jsonContent({ type: 'object', properties: { user: ref('User') } }) },
+          400: response('BadRequest'),
+          401: response('Unauthorized'),
+          403: response('Forbidden'),
+          413: response('PayloadTooLarge'),
+        },
+      },
+      get: {
+        tags: ['Users'],
+        summary: 'Download your profile resume (job seekers only)',
+        security: [{ bearerAuth: [] }],
+        responses: {
+          200: { description: 'The PDF file', content: { 'application/pdf': { schema: { type: 'string', format: 'binary' } } } },
+          401: response('Unauthorized'),
+          403: response('Forbidden'),
+          404: response('NotFound'),
+        },
+      },
+      delete: {
+        tags: ['Users'],
+        summary: 'Remove your profile resume (job seekers only)',
+        description: 'Resumes already sent with applications are separate copies and are not affected.',
+        security: [{ bearerAuth: [] }],
+        responses: {
+          200: { description: 'Resume removed', content: jsonContent({ type: 'object', properties: { user: ref('User') } }) },
           401: response('Unauthorized'),
           403: response('Forbidden'),
           404: response('NotFound'),

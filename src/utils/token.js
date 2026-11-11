@@ -11,7 +11,8 @@ const config = require('../config/env');
 
 function signToken(user) {
   // "sub" (subject) is the standard JWT claim for "who this token is about".
-  return jwt.sign({ sub: user.id }, config.jwtSecret, {
+  // Use _id explicitly: the User schema disables Mongoose's `id` shortcut.
+  return jwt.sign({ sub: user._id.toString() }, config.jwtSecret, {
     expiresIn: config.jwtExpiresIn,
     algorithm: 'HS256',
   });

@@ -1,11 +1,11 @@
 /**
  * Application controllers: applying to jobs and reviewing applicants.
  */
-const path = require('node:path');
-const { pipeline } = require('node:stream/promises');
 const Application = require('../models/Application');
 const ApiError = require('../utils/ApiError');
 const { APPLICATION_STATUSES } = require('../utils/constants');
+const { cleanFilename } = require('../utils/filename');
+const sendPdf = require('../utils/sendPdf');
 const { findJobOrThrow, findOwnedJobOrThrow } = require('./job.controller');
 const fileStorage = require('../services/fileStorage');
 
@@ -14,12 +14,6 @@ const APPLICANT_FIELDS = 'name email headline skills location';
 const JOB_SUMMARY_FIELDS = 'title company location jobType salaryRange';
 
 const alreadyAppliedError = () => new ApiError(409, 'You have already applied to this job');
-
-// Keep only a safe, readable file name (no folders, control characters or quotes).
-function cleanFilename(originalName) {
-  const name = path.basename(originalName).replace(/[\u0000-\u001f\u007f"\\]/g, '').trim();
-  return (name || 'resume.pdf').slice(-100);
-}
 
 // Counts per status, e.g. { total: 3, applied: 1, shortlisted: 1, rejected: 1 }
 function countByStatus(applications) {
@@ -36,13 +30,35 @@ async function findApplicationOrThrow(id) {
   return application;
 }
 
-// POST /api/jobs/:id/apply (job seekers)
-async function applyToJob(req, res) {
-  if (!req.file) {
-    throw new ApiError(400, 'Validation failed', [
-      { field: 'resume', message: 'Attach your resume as a PDF' },
-    ]);
+const resumeError = (message) => new ApiError(400, 'Validation failed', [{ field: 'resume', message }]);
+
+// Stores the resume for a new application and returns { fileId, filename, size }:
+// either the uploaded file, or a copy of the resume saved on the user's profile.
+async function storeApplicationResume(req, job) {
+  const metadata = { owner: req.user._id, job: job._id };
+
+  if (req.file) {
+    const filename = cleanFilename(req.file.originalname);
+    const fileId = await fileStorage.saveFile({
+      buffer: req.file.buffer,
+      filename,
+      contentType: 'application/pdf',
+      metadata,
+    });
+    return { fileId, filename, size: req.file.size };
   }
+
+  const { fileId: profileFileId, filename, size } = req.user.resume;
+  const fileId = await fileStorage.copyFile(profileFileId, { metadata });
+  if (!fileId) throw resumeError('Your profile resume could not be found. Please upload it again.');
+  return { fileId, filename, size };
+}
+
+// POST /api/jobs/:id/apply (job seekers)
+// Resume: an uploaded PDF, or `useProfileResume=true` to send the profile resume.
+async function applyToJob(req, res) {
+  if (!req.file && !req.body.useProfileResume) throw resumeError('Attach your resume as a PDF');
+  if (!req.file && !req.user.resume) throw resumeError("You don't have a resume on your profile yet");
 
   const job = await findJobOrThrow(req.params.id);
   if (await Application.exists({ job: job._id, applicant: req.user._id })) {
@@ -50,26 +66,20 @@ async function applyToJob(req, res) {
   }
 
   // Only now, after every check has passed, store the file.
-  const filename = cleanFilename(req.file.originalname);
-  const fileId = await fileStorage.saveFile({
-    buffer: req.file.buffer,
-    filename,
-    contentType: 'application/pdf',
-    metadata: { owner: req.user._id, job: job._id },
-  });
+  const resume = await storeApplicationResume(req, job);
 
   try {
     const application = await Application.create({
       job: job._id,
       applicant: req.user._id,
-      resume: { fileId, filename, size: req.file.size },
+      resume,
       coverNote: req.body.coverNote ?? '',
     });
     await application.populate('job', JOB_SUMMARY_FIELDS);
     res.status(201).json({ application });
   } catch (err) {
     // Don't leave an orphaned file behind if the application wasn't saved.
-    await fileStorage.deleteFile(fileId);
+    await fileStorage.deleteFile(resume.fileId);
     // Two identical requests at the same moment: the unique index rejects the second.
     if (err.code === 11000) throw alreadyAppliedError();
     throw err;
@@ -125,18 +135,7 @@ async function downloadResume(req, res) {
     throw new ApiError(403, 'You do not have access to this resume');
   }
 
-  const file = await fileStorage.getFileInfo(application.resume.fileId);
-  if (!file) throw new ApiError(404, 'Resume file not found');
-
-  res.set({
-    'Content-Type': 'application/pdf',
-    'Content-Length': file.length,
-    // Personal documents: browsers and proxies must not keep copies.
-    'Cache-Control': 'private, no-store',
-  });
-  // Sets Content-Disposition with the file name, safely encoded.
-  res.attachment(application.resume.filename);
-  await pipeline(fileStorage.openDownloadStream(file._id), res);
+  await sendPdf(res, application.resume.fileId, application.resume.filename);
 }
 
 module.exports = {

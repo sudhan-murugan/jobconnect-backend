@@ -2,7 +2,7 @@
 
 REST API for **JobConnect**, a job portal where recruiters post jobs and job seekers search and apply.
 
-> **Status:** Phase 5 (applications). Authentication with role-based access, job posting and search, applying with a PDF resume, and recruiter applicant review, all documented in Swagger; features are added phase by phase (see [Roadmap](#roadmap)).
+> **Status:** Phase 6 (profiles). Authentication with role-based access, job posting and search, applications with PDF resumes, recruiter applicant review, and user profiles with a saved resume, all documented in Swagger; features are added phase by phase (see [Roadmap](#roadmap)).
 
 Frontend repo: [jobconnect-frontend](https://github.com/sudhan-murugan/jobconnect-frontend)
 
@@ -48,7 +48,7 @@ Then open the interactive API docs at **http://localhost:5000/api/docs**.
 
 ### Demo accounts
 
-`npm run seed` creates these accounts (password `Demo1234`), 12 sample jobs at fictional companies, and 7 applications with generated PDF resumes in different statuses. Re-running it resets only this demo data.
+`npm run seed` creates these accounts (password `Demo1234`), 12 sample jobs at fictional companies, and 7 applications with generated PDF resumes in different statuses. The first two job seekers also have a resume saved on their profile; the third has none, to try the upload flow. Re-running it resets only this demo data.
 
 | Role       | Email                        |
 | ---------- | ---------------------------- |
@@ -91,11 +91,15 @@ Full, interactive documentation: **`GET /api/docs`** (Swagger UI). Raw OpenAPI s
 | GET    | `/api/jobs/mine`     | Recruiter       | Your own jobs, with applicant counts per status     |
 | PUT    | `/api/jobs/:id`      | Recruiter, owner | Replace a job (full update)                        |
 | DELETE | `/api/jobs/:id`      | Recruiter, owner | Delete a job and its applications                  |
-| POST   | `/api/jobs/:id/apply` | Job seeker     | Apply: `multipart/form-data` with `resume` (PDF, max 5 MB) and optional `coverNote` |
+| POST   | `/api/jobs/:id/apply` | Job seeker     | Apply: `multipart/form-data` with `resume` (PDF, max 5 MB) or `useProfileResume=true`, plus optional `coverNote` |
 | GET    | `/api/jobs/:id/applications` | Recruiter, owner | The job's applicants, with counts per status |
 | GET    | `/api/applications/me` | Job seeker    | Your applications (`?job=<id>` to check one job)    |
 | PATCH  | `/api/applications/:id/status` | Recruiter, job owner | Set status: `applied`, `shortlisted` or `rejected` |
 | GET    | `/api/applications/:id/resume` | Applicant or job owner | Download the submitted resume (PDF) |
+| PUT    | `/api/users/me`      | Logged in       | Update your profile: `name`, `headline`, `location`, `skills` |
+| POST   | `/api/users/me/resume` | Job seeker    | Upload or replace your profile resume (PDF, max 5 MB) |
+| GET    | `/api/users/me/resume` | Job seeker    | Download your profile resume                        |
+| DELETE | `/api/users/me/resume` | Job seeker    | Remove your profile resume                          |
 
 **Authentication:** send the token from register/login in the header `Authorization: Bearer <token>`.
 
@@ -158,19 +162,26 @@ Errors are returned as JSON: `{ "message": "...", "details": [{ "field", "messag
 - **No orphaned data:** a file is stored only after every check passes and is removed again if saving the application fails. Deleting a job also deletes its applications and their files.
 - Each application keeps **its own copy** of the resume as submitted, so later changes never alter what a recruiter received.
 
+### Profiles
+
+- `PUT /api/users/me` replaces the editable fields (name, headline, location, skills). Email, password and role can't be changed there; any extra fields in the body are ignored.
+- Job seekers can save **one resume on their profile** (`POST /api/users/me/resume`). Uploading again replaces it; the old file is deleted only after the new one is saved.
+- When applying, `useProfileResume=true` **copies** the profile resume into the application, so applying is one click and later profile changes don't affect sent applications.
+- `GET /api/auth/me` and the users endpoints return `resume: { filename, size, uploadedAt }` and `resumeUrl` for downloading it; the internal storage id is never exposed.
+
 ## Project structure
 
 ```
 src/
   config/       env.js (config from .env), db.js (MongoDB connection)
-  controllers/  request handlers (auth, jobs, applications)
+  controllers/  request handlers (auth, jobs, applications, users)
   docs/         openapi.js: the OpenAPI spec served by Swagger UI
   middleware/   auth.js (JWT), role.js (RBAC), validate.js, rateLimit.js, upload.js, error.js
   models/       Mongoose schemas (User, Job, Application)
   routes/       Express routers, mounted in app.js
   services/     fileStorage.js: save/read/delete files in GridFS
-  utils/        shared helpers (ApiError, JWT helpers, constants, escapeRegex)
-  validators/   express-validator rules for request bodies, params and queries
+  utils/        shared helpers (ApiError, JWT helpers, constants, escapeRegex, filename, sendPdf)
+  validators/   express-validator rules for request bodies, params and queries (common.js: shared rules)
   app.js        builds the Express app (no network port; easy to test)
   server.js     connects to MongoDB, then starts listening
 scripts/
@@ -186,7 +197,7 @@ tests/          Jest + Supertest tests
 3. ✅ Jobs: CRUD, search, filters, pagination, Swagger
 4. ✅ Jobs frontend (in the frontend repo)
 5. ✅ Applications: apply with resume, recruiter review
-6. Profile and UI polish
+6. ✅ Profile and UI polish
 7. Testing
 8. Deployment: Docker, Render, MongoDB Atlas
 9. Documentation

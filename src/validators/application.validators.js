@@ -6,9 +6,15 @@ const { APPLICATION_STATUSES } = require('../utils/constants');
 
 const STATUS_VALUES = Object.values(APPLICATION_STATUSES);
 
-// POST /api/jobs/:id/apply (multipart form: "resume" file + "coverNote" text)
+// POST /api/jobs/:id/apply (multipart form: "resume" file + "coverNote" text,
+// or "useProfileResume=true" instead of a file)
 const applyRules = [
   param('id').isMongoId().withMessage('Invalid job id'),
+  body('useProfileResume')
+    .optional()
+    .isBoolean()
+    .withMessage('useProfileResume must be true or false')
+    .toBoolean(),
   body('coverNote')
     .optional()
     .isString()

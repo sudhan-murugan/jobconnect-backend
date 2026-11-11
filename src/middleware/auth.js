@@ -23,6 +23,9 @@ async function authenticate(req, res, next) {
 
   // Load the user fresh from the DB rather than trusting the token alone, so a
   // deleted account loses access immediately and role changes apply at once.
+  if (!payload.sub) {
+    throw new ApiError(401, 'Invalid or expired token');
+  }
   const user = await User.findById(payload.sub);
   if (!user) {
     throw new ApiError(401, 'User no longer exists');

@@ -10,6 +10,17 @@ const bcrypt = require('bcrypt');
 const config = require('../config/env');
 const { ROLES } = require('../utils/constants');
 
+// The resume saved on a job seeker's profile (stored in GridFS, see services/fileStorage.js).
+const profileResumeSchema = new Schema(
+  {
+    fileId: { type: Schema.Types.ObjectId, required: true },
+    filename: { type: String, required: true },
+    size: { type: Number, required: true }, // bytes
+    uploadedAt: { type: Date, required: true },
+  },
+  { _id: false }
+);
+
 const userSchema = new Schema(
   {
     name: { type: String, required: true, trim: true, maxlength: 100 },
@@ -21,25 +32,36 @@ const userSchema = new Schema(
     passwordHash: { type: String, required: true, select: false },
     role: { type: String, enum: Object.values(ROLES), required: true },
 
-    // Profile fields (edited in Phase 6)
+    // Profile fields (edited with PUT /api/users/me)
     headline: { type: String, trim: true, maxlength: 150, default: '' },
-    skills: { type: [String], default: [] },
+    skills: { type: [{ type: String, trim: true, maxlength: 40 }], default: [] },
     location: { type: String, trim: true, maxlength: 100, default: '' },
-    resumeUrl: { type: String, default: null },
+    // Job seekers only (POST /api/users/me/resume). Absent until uploaded.
+    resume: { type: profileResumeSchema, default: undefined },
   },
   {
     // Adds and maintains createdAt / updatedAt automatically.
     timestamps: true,
-    // Controls what res.json(user) sends: never leak the hash or the internal __v field.
+    id: false, // don't add a duplicate "id" virtual next to _id
+    // Controls what res.json(user) sends.
     toJSON: {
+      virtuals: true, // include resumeUrl (below)
       transform(doc, ret) {
+        // Never leak the password hash, the internal __v field or storage ids.
         delete ret.passwordHash;
         delete ret.__v;
+        if (ret.resume) delete ret.resume.fileId;
         return ret;
       },
     },
   }
 );
+
+// Where the logged-in user can download their own profile resume, or null.
+// A virtual is computed when read, not stored in MongoDB.
+userSchema.virtual('resumeUrl').get(function resumeUrl() {
+  return this.resume ? '/api/users/me/resume' : null;
+});
 
 // Instance methods are available on every user document. They use a regular
 // `function` (not an arrow function) so that `this` refers to the document.

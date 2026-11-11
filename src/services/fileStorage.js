@@ -46,6 +46,20 @@ function openDownloadStream(fileId) {
   return getBucket().openDownloadStream(fileId);
 }
 
+// Copies a stored file and returns the new copy's id (or null if the source is
+// missing). Used when someone applies with the resume saved on their profile:
+// the application gets its own copy, so later profile changes don't affect it.
+async function copyFile(fileId, { metadata = {} } = {}) {
+  const source = await getFileInfo(fileId);
+  if (!source) return null;
+
+  const uploadStream = getBucket().openUploadStream(source.filename, {
+    metadata: { ...source.metadata, ...metadata },
+  });
+  await pipeline(openDownloadStream(fileId), uploadStream);
+  return uploadStream.id;
+}
+
 // Deletes a file. A file that is already gone is not an error.
 async function deleteFile(fileId) {
   try {
@@ -55,4 +69,4 @@ async function deleteFile(fileId) {
   }
 }
 
-module.exports = { saveFile, getFileInfo, openDownloadStream, deleteFile };
+module.exports = { saveFile, getFileInfo, openDownloadStream, copyFile, deleteFile };

@@ -1,8 +1,10 @@
 # JobConnect API
 
+[![CI](https://github.com/sudhan-murugan/jobconnect-backend/actions/workflows/ci.yml/badge.svg)](https://github.com/sudhan-murugan/jobconnect-backend/actions/workflows/ci.yml)
+
 REST API for **JobConnect**, a job portal where recruiters post jobs and job seekers search and apply.
 
-> **Status:** Phase 6 (profiles). Authentication with role-based access, job posting and search, applications with PDF resumes, recruiter applicant review, and user profiles with a saved resume, all documented in Swagger; features are added phase by phase (see [Roadmap](#roadmap)).
+> **Status:** Phase 7 (testing). Authentication with role-based access, job posting and search, applications with PDF resumes, recruiter applicant review and user profiles, documented in Swagger and covered by 108 automated tests; features are added phase by phase (see [Roadmap](#roadmap)).
 
 Frontend repo: [jobconnect-frontend](https://github.com/sudhan-murugan/jobconnect-frontend)
 
@@ -16,7 +18,8 @@ Frontend repo: [jobconnect-frontend](https://github.com/sudhan-murugan/jobconnec
 - **File uploads:** Multer (PDF resumes), stored in MongoDB GridFS
 - **API docs:** OpenAPI 3 + Swagger UI
 - **Security:** Helmet (HTTP headers), CORS allow-list, rate limiting on login/register
-- **Planned:** Jest + Supertest, Docker
+- **Testing:** Jest + Supertest, with an in-memory MongoDB (mongodb-memory-server); GitHub Actions CI
+- **Planned:** Docker
 
 ## Getting started
 
@@ -45,6 +48,9 @@ Then open the interactive API docs at **http://localhost:5000/api/docs**.
 | `npm run dev`  | Start with auto-restart on changes (`node --watch`)   |
 | `npm start`    | Start for production                                  |
 | `npm run seed` | Create demo accounts, jobs and applications (safe to re-run) |
+| `npm test`     | Run the test suite (no database setup needed)         |
+| `npm run test:coverage` | Tests plus a coverage report (fails below the thresholds) |
+| `npm run test:watch` | Re-run tests on file changes                    |
 
 ### Demo accounts
 
@@ -169,6 +175,22 @@ Errors are returned as JSON: `{ "message": "...", "details": [{ "field", "messag
 - When applying, `useProfileResume=true` **copies** the profile resume into the application, so applying is one click and later profile changes don't affect sent applications.
 - `GET /api/auth/me` and the users endpoints return `resume: { filename, size, uploadedAt }` and `resumeUrl` for downloading it; the internal storage id is never exposed.
 
+## Testing
+
+```bash
+npm test                # 108 tests, about 10 seconds
+npm run test:coverage   # plus a coverage report
+```
+
+- **Integration tests** (`tests/*.test.js`) call the real Express app through Supertest: routing, middleware, validation, controllers and MongoDB, just like a client would. They cover auth, job CRUD with ownership rules, search/filters/pagination, the whole apply flow (uploads, duplicates, concurrent requests, status changes, resume downloads, no leftover files), and profiles.
+- **Unit tests** (`tests/unit/`) cover helpers, the role middleware, the error handler and config validation in isolation.
+- **Isolated database:** `mongodb-memory-server` starts a throwaway MongoDB for the test run (the binary is downloaded once, then cached). Each Jest worker gets its own database and every test starts empty, so tests can't affect each other or any real data. No `.env` file or local MongoDB is needed.
+- **Fast:** tests use bcrypt cost 4 instead of 12, and rate limiting is off in the test environment.
+- **Coverage:** about 98% of statements and 90% of branches in `src/`. `test:coverage` fails if coverage drops below 90% (statements, lines, functions) or 80% (branches).
+- **CI:** GitHub Actions runs `npm run test:coverage` on every push and pull request (`.github/workflows/ci.yml`).
+
+The test script runs Jest with `node --experimental-vm-modules`. The MongoDB driver loads Node's `os` module with a dynamic `import()`, which Jest only supports with that flag; without it, the driver can't connect inside tests.
+
 ## Project structure
 
 ```
@@ -187,7 +209,11 @@ src/
 scripts/
   seed.js       demo data
   samplePdf.js  builds small PDF resumes for the demo data
-tests/          Jest + Supertest tests
+tests/
+  *.test.js     API integration tests (Supertest)
+  unit/         unit tests
+  setup/        in-memory MongoDB and per-test cleanup
+  helpers.js    factories for users, jobs and PDF files
 ```
 
 ## Roadmap
@@ -198,6 +224,6 @@ tests/          Jest + Supertest tests
 4. ✅ Jobs frontend (in the frontend repo)
 5. ✅ Applications: apply with resume, recruiter review
 6. ✅ Profile and UI polish
-7. Testing
+7. ✅ Testing: Jest + Supertest, in-memory MongoDB, CI
 8. Deployment: Docker, Render, MongoDB Atlas
 9. Documentation

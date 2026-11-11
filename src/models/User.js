@@ -51,6 +51,9 @@ const userSchema = new Schema(
         delete ret.passwordHash;
         delete ret.__v;
         if (ret.resume) delete ret.resume.fileId;
+        // When only some fields were loaded (e.g. a job's poster with just their
+        // name), don't add resumeUrl: it would always be null and misleading.
+        if (!doc.isSelected('resume')) delete ret.resumeUrl;
         return ret;
       },
     },

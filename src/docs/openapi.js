@@ -5,7 +5,13 @@
  * UI turns it into interactive docs at GET /api/docs, where you can try every
  * endpoint from the browser. Keep this file in sync when routes change.
  */
-const { JOB_TYPES, ROLES, PAGINATION } = require('../utils/constants');
+const {
+  JOB_TYPES,
+  ROLES,
+  PAGINATION,
+  APPLICATION_STATUSES,
+  MAX_RESUME_SIZE_MB,
+} = require('../utils/constants');
 
 const ref = (name) => ({ $ref: `#/components/schemas/${name}` });
 const response = (name) => ({ $ref: `#/components/responses/${name}` });
@@ -27,6 +33,7 @@ const openapi = {
     { name: 'Health', description: 'Service status' },
     { name: 'Auth', description: 'Register, log in and get the current user' },
     { name: 'Jobs', description: 'Browse, search and manage job posts' },
+    { name: 'Applications', description: 'Apply to jobs, track applications and review applicants' },
   ],
   components: {
     securitySchemes: {
@@ -142,6 +149,80 @@ const openapi = {
         ],
       },
 
+      ApplicationStatus: {
+        type: 'string',
+        enum: Object.values(APPLICATION_STATUSES),
+        example: APPLICATION_STATUSES.APPLIED,
+      },
+
+      ApplicationCounts: {
+        type: 'object',
+        description: 'Number of applications in total and per status',
+        properties: {
+          total: { type: 'integer', example: 3 },
+          applied: { type: 'integer', example: 1 },
+          shortlisted: { type: 'integer', example: 1 },
+          rejected: { type: 'integer', example: 1 },
+        },
+      },
+
+      Application: {
+        type: 'object',
+        properties: {
+          _id: ref('ObjectId'),
+          job: {
+            description: 'Job id, or a job summary when populated',
+            oneOf: [
+              ref('ObjectId'),
+              {
+                type: 'object',
+                properties: {
+                  _id: ref('ObjectId'),
+                  title: { type: 'string' },
+                  company: { type: 'string' },
+                  location: { type: 'string' },
+                  jobType: { type: 'string', enum: Object.values(JOB_TYPES) },
+                  salaryRange: ref('SalaryRange'),
+                },
+              },
+            ],
+          },
+          applicant: {
+            description: 'User id, or (for recruiters) the applicant\'s public profile and email',
+            oneOf: [
+              ref('ObjectId'),
+              {
+                type: 'object',
+                properties: {
+                  _id: ref('ObjectId'),
+                  name: { type: 'string' },
+                  email: { type: 'string', format: 'email' },
+                  headline: { type: 'string' },
+                  skills: { type: 'array', items: { type: 'string' } },
+                  location: { type: 'string' },
+                },
+              },
+            ],
+          },
+          resume: {
+            type: 'object',
+            properties: {
+              filename: { type: 'string', example: 'Daniel Ong - Resume.pdf' },
+              size: { type: 'integer', description: 'Bytes', example: 84213 },
+            },
+          },
+          resumeUrl: {
+            type: 'string',
+            description: 'Download path (requires the applicant or the job\'s recruiter to be logged in)',
+            example: '/api/applications/6650f1c2a1b2c3d4e5f60718/resume',
+          },
+          coverNote: { type: 'string', example: 'I have three years of React experience...' },
+          status: ref('ApplicationStatus'),
+          createdAt: { type: 'string', format: 'date-time' },
+          updatedAt: { type: 'string', format: 'date-time' },
+        },
+      },
+
       Pagination: {
         type: 'object',
         properties: {
@@ -200,6 +281,10 @@ const openapi = {
       NotFound: {
         description: 'Not found',
         content: jsonContent(ref('Error'), { message: 'Job not found' }),
+      },
+      PayloadTooLarge: {
+        description: `Resume larger than ${MAX_RESUME_SIZE_MB} MB`,
+        content: jsonContent(ref('ValidationError')),
       },
       TooManyRequests: {
         description:
@@ -377,9 +462,215 @@ const openapi = {
       delete: {
         tags: ['Jobs'],
         summary: 'Delete a job (owner only)',
+        description: "Also deletes the job's applications and their resume files.",
         security: [{ bearerAuth: [] }],
         responses: {
           204: { description: 'Job deleted' },
+          400: response('BadRequest'),
+          401: response('Unauthorized'),
+          403: response('Forbidden'),
+          404: response('NotFound'),
+        },
+      },
+    },
+
+    '/api/jobs/mine': {
+      get: {
+        tags: ['Jobs'],
+        summary: "The logged-in recruiter's jobs, with applicant counts",
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          { name: 'page', in: 'query', schema: { type: 'integer', minimum: 1, default: 1 } },
+          {
+            name: 'limit',
+            in: 'query',
+            schema: { type: 'integer', minimum: 1, maximum: PAGINATION.MAX_LIMIT, default: PAGINATION.DEFAULT_LIMIT },
+          },
+        ],
+        responses: {
+          200: {
+            description: 'A page of jobs, newest first',
+            content: jsonContent({
+              type: 'object',
+              properties: {
+                jobs: {
+                  type: 'array',
+                  items: {
+                    allOf: [
+                      ref('JobInput'),
+                      {
+                        type: 'object',
+                        properties: {
+                          _id: ref('ObjectId'),
+                          postedBy: ref('ObjectId'),
+                          applicationCounts: ref('ApplicationCounts'),
+                          createdAt: { type: 'string', format: 'date-time' },
+                          updatedAt: { type: 'string', format: 'date-time' },
+                        },
+                      },
+                    ],
+                  },
+                },
+                pagination: ref('Pagination'),
+              },
+            }),
+          },
+          400: response('BadRequest'),
+          401: response('Unauthorized'),
+          403: response('Forbidden'),
+        },
+      },
+    },
+
+    '/api/jobs/{id}/apply': {
+      parameters: [{ $ref: '#/components/parameters/JobId' }],
+      post: {
+        tags: ['Applications'],
+        summary: 'Apply to a job (job seekers only)',
+        description:
+          `Send as \`multipart/form-data\`. The resume must be a PDF of at most ${MAX_RESUME_SIZE_MB} MB ` +
+          '(checked by type, extension and file content). One application per job.',
+        security: [{ bearerAuth: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            'multipart/form-data': {
+              schema: {
+                type: 'object',
+                required: ['resume'],
+                properties: {
+                  resume: { type: 'string', format: 'binary', description: 'PDF file' },
+                  coverNote: { type: 'string', maxLength: 2000 },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          201: {
+            description: 'Application submitted',
+            content: jsonContent({ type: 'object', properties: { application: ref('Application') } }),
+          },
+          400: response('BadRequest'),
+          401: response('Unauthorized'),
+          403: response('Forbidden'),
+          404: response('NotFound'),
+          409: {
+            description: 'Already applied',
+            content: jsonContent(ref('Error'), { message: 'You have already applied to this job' }),
+          },
+          413: response('PayloadTooLarge'),
+        },
+      },
+    },
+
+    '/api/jobs/{id}/applications': {
+      parameters: [{ $ref: '#/components/parameters/JobId' }],
+      get: {
+        tags: ['Applications'],
+        summary: "List a job's applicants (the job's recruiter only)",
+        security: [{ bearerAuth: [] }],
+        responses: {
+          200: {
+            description: 'Applicants, newest first',
+            content: jsonContent({
+              type: 'object',
+              properties: {
+                job: {
+                  type: 'object',
+                  properties: {
+                    _id: ref('ObjectId'),
+                    title: { type: 'string' },
+                    company: { type: 'string' },
+                    location: { type: 'string' },
+                  },
+                },
+                applications: { type: 'array', items: ref('Application') },
+                counts: ref('ApplicationCounts'),
+              },
+            }),
+          },
+          400: response('BadRequest'),
+          401: response('Unauthorized'),
+          403: response('Forbidden'),
+          404: response('NotFound'),
+        },
+      },
+    },
+
+    '/api/applications/me': {
+      get: {
+        tags: ['Applications'],
+        summary: "The logged-in job seeker's applications",
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          {
+            name: 'job',
+            in: 'query',
+            description: 'Only the application to this job (to check whether you already applied)',
+            schema: ref('ObjectId'),
+          },
+        ],
+        responses: {
+          200: {
+            description: 'Applications, newest first',
+            content: jsonContent({
+              type: 'object',
+              properties: {
+                applications: { type: 'array', items: ref('Application') },
+                counts: ref('ApplicationCounts'),
+              },
+            }),
+          },
+          400: response('BadRequest'),
+          401: response('Unauthorized'),
+          403: response('Forbidden'),
+        },
+      },
+    },
+
+    '/api/applications/{id}/status': {
+      parameters: [
+        { name: 'id', in: 'path', required: true, description: 'Application id', schema: ref('ObjectId') },
+      ],
+      patch: {
+        tags: ['Applications'],
+        summary: "Update an application's status (the job's recruiter only)",
+        security: [{ bearerAuth: [] }],
+        requestBody: {
+          required: true,
+          content: jsonContent(
+            { type: 'object', required: ['status'], properties: { status: ref('ApplicationStatus') } },
+            { status: APPLICATION_STATUSES.SHORTLISTED }
+          ),
+        },
+        responses: {
+          200: {
+            description: 'Status updated',
+            content: jsonContent({ type: 'object', properties: { application: ref('Application') } }),
+          },
+          400: response('BadRequest'),
+          401: response('Unauthorized'),
+          403: response('Forbidden'),
+          404: response('NotFound'),
+        },
+      },
+    },
+
+    '/api/applications/{id}/resume': {
+      parameters: [
+        { name: 'id', in: 'path', required: true, description: 'Application id', schema: ref('ObjectId') },
+      ],
+      get: {
+        tags: ['Applications'],
+        summary: 'Download the resume submitted with an application',
+        description: "Only the applicant and the job's recruiter can download it.",
+        security: [{ bearerAuth: [] }],
+        responses: {
+          200: {
+            description: 'The PDF file',
+            content: { 'application/pdf': { schema: { type: 'string', format: 'binary' } } },
+          },
           400: response('BadRequest'),
           401: response('Unauthorized'),
           403: response('Forbidden'),

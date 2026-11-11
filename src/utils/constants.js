@@ -13,10 +13,18 @@ const JOB_TYPES = Object.freeze({
   REMOTE: 'remote',
 });
 
+const APPLICATION_STATUSES = Object.freeze({
+  APPLIED: 'applied',
+  SHORTLISTED: 'shortlisted',
+  REJECTED: 'rejected',
+});
+
 // Pagination for GET /api/jobs
 const PAGINATION = Object.freeze({
   DEFAULT_LIMIT: 10,
   MAX_LIMIT: 50,
 });
 
-module.exports = { ROLES, JOB_TYPES, PAGINATION };
+const MAX_RESUME_SIZE_MB = 5;
+
+module.exports = { ROLES, JOB_TYPES, APPLICATION_STATUSES, PAGINATION, MAX_RESUME_SIZE_MB };

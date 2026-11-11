@@ -2,7 +2,7 @@
 
 REST API for **JobConnect**, a job portal where recruiters post jobs and job seekers search and apply.
 
-> **Status:** Phase 3 (jobs). Authentication with role-based access, plus job posting, search, filters, pagination and Swagger docs; features are added phase by phase (see [Roadmap](#roadmap)).
+> **Status:** Phase 5 (applications). Authentication with role-based access, job posting and search, applying with a PDF resume, and recruiter applicant review, all documented in Swagger; features are added phase by phase (see [Roadmap](#roadmap)).
 
 Frontend repo: [jobconnect-frontend](https://github.com/sudhan-murugan/jobconnect-frontend)
 
@@ -13,9 +13,10 @@ Frontend repo: [jobconnect-frontend](https://github.com/sudhan-murugan/jobconnec
 - **Database:** MongoDB with Mongoose (text index for keyword search)
 - **Auth:** JWT (jsonwebtoken), bcrypt password hashing, role-based access control
 - **Validation:** express-validator
+- **File uploads:** Multer (PDF resumes), stored in MongoDB GridFS
 - **API docs:** OpenAPI 3 + Swagger UI
 - **Security:** Helmet (HTTP headers), CORS allow-list, rate limiting on login/register
-- **Planned:** Multer uploads, Jest + Supertest, Docker
+- **Planned:** Jest + Supertest, Docker
 
 ## Getting started
 
@@ -31,7 +32,7 @@ git clone https://github.com/sudhan-murugan/jobconnect-backend.git
 cd jobconnect-backend
 npm install
 cp .env.example .env   # then set JWT_SECRET (see below)
-npm run seed           # optional: demo accounts + 12 sample jobs
+npm run seed           # optional: demo accounts, sample jobs and applications
 npm run dev            # starts on http://localhost:5000 and restarts on file changes
 ```
 
@@ -43,16 +44,18 @@ Then open the interactive API docs at **http://localhost:5000/api/docs**.
 | -------------- | ----------------------------------------------------- |
 | `npm run dev`  | Start with auto-restart on changes (`node --watch`)   |
 | `npm start`    | Start for production                                  |
-| `npm run seed` | Create demo accounts and sample jobs (safe to re-run) |
+| `npm run seed` | Create demo accounts, jobs and applications (safe to re-run) |
 
 ### Demo accounts
 
-`npm run seed` creates these accounts (password `Demo1234`) and 12 sample jobs at fictional companies. Re-running it resets only this demo data.
+`npm run seed` creates these accounts (password `Demo1234`), 12 sample jobs at fictional companies, and 7 applications with generated PDF resumes in different statuses. Re-running it resets only this demo data.
 
 | Role       | Email                        |
 | ---------- | ---------------------------- |
 | Recruiter  | `demo.recruiter@example.com` |
 | Job seeker | `demo.seeker@example.com`    |
+| Job seeker | `demo.seeker2@example.com`   |
+| Job seeker | `demo.seeker3@example.com`   |
 
 ## Environment variables
 
@@ -85,8 +88,14 @@ Full, interactive documentation: **`GET /api/docs`** (Swagger UI). Raw OpenAPI s
 | GET    | `/api/jobs`          | Public          | List and search jobs (see query parameters below)   |
 | GET    | `/api/jobs/:id`      | Public          | One job                                             |
 | POST   | `/api/jobs`          | Recruiter       | Post a job                                          |
+| GET    | `/api/jobs/mine`     | Recruiter       | Your own jobs, with applicant counts per status     |
 | PUT    | `/api/jobs/:id`      | Recruiter, owner | Replace a job (full update)                        |
-| DELETE | `/api/jobs/:id`      | Recruiter, owner | Delete a job                                       |
+| DELETE | `/api/jobs/:id`      | Recruiter, owner | Delete a job and its applications                  |
+| POST   | `/api/jobs/:id/apply` | Job seeker     | Apply: `multipart/form-data` with `resume` (PDF, max 5 MB) and optional `coverNote` |
+| GET    | `/api/jobs/:id/applications` | Recruiter, owner | The job's applicants, with counts per status |
+| GET    | `/api/applications/me` | Job seeker    | Your applications (`?job=<id>` to check one job)    |
+| PATCH  | `/api/applications/:id/status` | Recruiter, job owner | Set status: `applied`, `shortlisted` or `rejected` |
+| GET    | `/api/applications/:id/resume` | Applicant or job owner | Download the submitted resume (PDF) |
 
 **Authentication:** send the token from register/login in the header `Authorization: Bearer <token>`.
 
@@ -119,7 +128,8 @@ Errors are returned as JSON: `{ "message": "...", "details": [{ "field", "messag
 | 401    | Not logged in, or token invalid/expired, or wrong email/password |
 | 403    | Logged in, but not allowed: wrong role, or not the job's owner   |
 | 404    | Route or resource not found                                      |
-| 409    | Conflict, e.g. email already registered                          |
+| 409    | Conflict, e.g. email already registered or already applied       |
+| 413    | Resume file larger than 5 MB                                     |
 | 429    | Too many login/register attempts (per IP per 15 minutes: 20 in production, 100 in development) |
 
 ## How it works
@@ -139,22 +149,33 @@ Errors are returned as JSON: `{ "message": "...", "details": [{ "field", "messag
 - **Location** is a case-insensitive "contains" match; user input is escaped before being used in the regular expression.
 - Extra indexes on `createdAt`, `jobType` and `postedBy` keep the default "newest first" listing and filters fast.
 
+### Applications and resume files
+
+- **One application per job seeker per job**, enforced by a unique compound index on `{ job, applicant }`. Even two simultaneous requests can't create a duplicate; the second gets 409.
+- **Uploads are checked three times:** Multer accepts only one file, at most 5 MB, named `*.pdf` with type `application/pdf`; then the file's first bytes must be the PDF signature `%PDF-`, so a renamed text file is rejected.
+- **Storage:** resumes are stored in MongoDB **GridFS** (`src/services/fileStorage.js`), not on the server's disk. Files survive restarts and redeploys (hosting platforms like Render wipe the local disk on every deploy), and no extra cloud account is needed. Swapping in S3 or Cloudinary would only change that one file.
+- **Private by default:** there are no public file URLs. `GET /api/applications/:id/resume` streams the PDF only to the applicant or the job's recruiter, with `Cache-Control: private, no-store`.
+- **No orphaned data:** a file is stored only after every check passes and is removed again if saving the application fails. Deleting a job also deletes its applications and their files.
+- Each application keeps **its own copy** of the resume as submitted, so later changes never alter what a recruiter received.
+
 ## Project structure
 
 ```
 src/
   config/       env.js (config from .env), db.js (MongoDB connection)
-  controllers/  request handlers (auth, jobs)
+  controllers/  request handlers (auth, jobs, applications)
   docs/         openapi.js: the OpenAPI spec served by Swagger UI
   middleware/   auth.js (JWT), role.js (RBAC), validate.js, rateLimit.js, upload.js, error.js
-  models/       Mongoose schemas (User, Job)
+  models/       Mongoose schemas (User, Job, Application)
   routes/       Express routers, mounted in app.js
+  services/     fileStorage.js: save/read/delete files in GridFS
   utils/        shared helpers (ApiError, JWT helpers, constants, escapeRegex)
   validators/   express-validator rules for request bodies, params and queries
   app.js        builds the Express app (no network port; easy to test)
   server.js     connects to MongoDB, then starts listening
 scripts/
   seed.js       demo data
+  samplePdf.js  builds small PDF resumes for the demo data
 tests/          Jest + Supertest tests
 ```
 
@@ -164,7 +185,7 @@ tests/          Jest + Supertest tests
 2. ✅ Authentication: register/login, JWT, role-based access
 3. ✅ Jobs: CRUD, search, filters, pagination, Swagger
 4. ✅ Jobs frontend (in the frontend repo)
-5. Applications: apply with resume, recruiter review
+5. ✅ Applications: apply with resume, recruiter review
 6. Profile and UI polish
 7. Testing
 8. Deployment: Docker, Render, MongoDB Atlas

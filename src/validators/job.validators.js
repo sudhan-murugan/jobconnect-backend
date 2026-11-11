@@ -109,6 +109,20 @@ const createJobRules = jobBodyRules;
 const updateJobRules = [jobIdRule, ...jobBodyRules];
 const jobIdRules = [jobIdRule];
 
+// ?page=&limit= (shared by the job list endpoints)
+const paginationRules = [
+  query('page')
+    .optional({ values: 'falsy' })
+    .isInt({ min: 1 })
+    .withMessage('Page must be a whole number of 1 or more')
+    .toInt(),
+  query('limit')
+    .optional({ values: 'falsy' })
+    .isInt({ min: 1, max: PAGINATION.MAX_LIMIT })
+    .withMessage(`Limit must be between 1 and ${PAGINATION.MAX_LIMIT}`)
+    .toInt(),
+];
+
 // GET /api/jobs?keyword=&location=&jobType=&postedBy=&page=&limit=
 // `optional({ values: 'falsy' })` treats empty values like "?keyword=" as not given.
 // isString() also rejects repeated params such as "?keyword=a&keyword=b".
@@ -131,16 +145,10 @@ const listJobsRules = [
     .withMessage('Location must be at most 100 characters'),
   query('jobType').optional({ values: 'falsy' }).isIn(JOB_TYPE_VALUES).withMessage(jobTypeMessage),
   query('postedBy').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid user id'),
-  query('page')
-    .optional({ values: 'falsy' })
-    .isInt({ min: 1 })
-    .withMessage('Page must be a whole number of 1 or more')
-    .toInt(),
-  query('limit')
-    .optional({ values: 'falsy' })
-    .isInt({ min: 1, max: PAGINATION.MAX_LIMIT })
-    .withMessage(`Limit must be between 1 and ${PAGINATION.MAX_LIMIT}`)
-    .toInt(),
+  ...paginationRules,
 ];
 
-module.exports = { createJobRules, updateJobRules, jobIdRules, listJobsRules };
+// GET /api/jobs/mine?page=&limit=
+const myJobsRules = paginationRules;
+
+module.exports = { createJobRules, updateJobRules, jobIdRules, listJobsRules, myJobsRules };

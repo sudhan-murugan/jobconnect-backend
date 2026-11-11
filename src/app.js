@@ -12,9 +12,16 @@ const morgan = require('morgan');
 
 const config = require('./config/env');
 const healthRoutes = require('./routes/health.routes');
+const authRoutes = require('./routes/auth.routes');
 const { notFound, errorHandler } = require('./middleware/error');
 
 const app = express();
+
+// In production the app runs behind the hosting platform's proxy (e.g. Render).
+// This makes req.ip the real client IP, which the rate limiter depends on.
+if (config.isProduction) {
+  app.set('trust proxy', 1);
+}
 
 // ---- Global middleware (runs on every request, in this order) ----
 app.use(helmet()); // sets security-related HTTP headers
@@ -26,9 +33,8 @@ if (!config.isTest) {
 
 // ---- Routes ----
 app.use('/health', healthRoutes);
-// Feature routes are mounted under /api in later phases, e.g.:
-// app.use('/api/auth', authRoutes);
-// app.use('/api/jobs', jobRoutes);
+app.use('/api/auth', authRoutes);
+// Later phases: app.use('/api/jobs', jobRoutes); ...
 
 // ---- Error handling (must be registered AFTER the routes) ----
 app.use(notFound);

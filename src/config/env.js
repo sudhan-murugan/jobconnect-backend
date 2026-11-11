@@ -13,7 +13,7 @@ dotenv.config({ quiet: true });
 
 // Fail fast: crash on startup with a clear message rather than failing
 // later with a confusing error when the value is first used.
-const required = ['MONGODB_URI'];
+const required = ['MONGODB_URI', 'JWT_SECRET'];
 const missing = required.filter((key) => !process.env[key]);
 if (missing.length > 0) {
   throw new Error(
@@ -31,9 +31,20 @@ const config = {
     .split(',')
     .map((origin) => origin.trim())
     .filter(Boolean),
+
+  // Auth
+  jwtSecret: process.env.JWT_SECRET,
+  jwtExpiresIn: process.env.JWT_EXPIRES_IN || '1d', // e.g. "15m", "1d", "7d"
+  // bcrypt cost factor: each +1 doubles the time to hash (and to brute-force).
+  bcryptSaltRounds: Number(process.env.BCRYPT_SALT_ROUNDS) || 12,
 };
 
 config.isProduction = config.nodeEnv === 'production';
 config.isTest = config.nodeEnv === 'test';
+
+// A short JWT secret can be brute-forced, letting anyone forge login tokens.
+if (config.isProduction && config.jwtSecret.length < 32) {
+  throw new Error('JWT_SECRET must be at least 32 characters in production.');
+}
 
 module.exports = config;

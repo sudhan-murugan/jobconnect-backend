@@ -9,10 +9,13 @@ const express = require('express');
 const helmet = require('helmet');
 const cors = require('cors');
 const morgan = require('morgan');
+const swaggerUi = require('swagger-ui-express');
 
 const config = require('./config/env');
+const openapiSpec = require('./docs/openapi');
 const healthRoutes = require('./routes/health.routes');
 const authRoutes = require('./routes/auth.routes');
+const jobRoutes = require('./routes/job.routes');
 const { notFound, errorHandler } = require('./middleware/error');
 
 const app = express();
@@ -34,7 +37,19 @@ if (!config.isTest) {
 // ---- Routes ----
 app.use('/health', healthRoutes);
 app.use('/api/auth', authRoutes);
-// Later phases: app.use('/api/jobs', jobRoutes); ...
+app.use('/api/jobs', jobRoutes);
+
+// ---- API documentation ----
+// Interactive docs at /api/docs; the raw spec at /api/docs.json (for tools like Postman).
+app.get('/api/docs.json', (req, res) => res.json(openapiSpec));
+app.use(
+  '/api/docs',
+  swaggerUi.serve,
+  swaggerUi.setup(openapiSpec, {
+    customSiteTitle: 'JobConnect API Docs',
+    swaggerOptions: { persistAuthorization: true }, // keep the token after a page reload
+  })
+);
 
 // ---- Error handling (must be registered AFTER the routes) ----
 app.use(notFound);

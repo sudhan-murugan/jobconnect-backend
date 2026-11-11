@@ -17,6 +17,12 @@ async function connectDB(uri) {
 
   // Give up after 10s instead of hanging if the DB is unreachable.
   await mongoose.connect(uri, { serverSelectionTimeoutMS: 10000 });
+
+  // Mongoose builds schema indexes in the background after connecting. Wait
+  // for them so the first requests can rely on them (the unique email index,
+  // and the text index that keyword search needs).
+  await Promise.all(Object.values(mongoose.models).map((model) => model.init()));
+
   console.log(`MongoDB connected: ${mongoose.connection.host}/${mongoose.connection.name}`);
 }
 

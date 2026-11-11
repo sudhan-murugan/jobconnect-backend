@@ -20,7 +20,9 @@ function normalizeError(err) {
 
   // Mongoose schema validation failed (e.g. a required field is missing)
   if (err.name === 'ValidationError' && err.errors) {
-    const details = Object.values(err.errors).map((e) => ({ field: e.path, message: e.message }));
+    // Use the object keys as field names: they hold the full path of nested
+    // fields (e.g. "salaryRange.min"), while each error's own `path` is just "min".
+    const details = Object.entries(err.errors).map(([field, e]) => ({ field, message: e.message }));
     return new ApiError(400, 'Validation failed', details);
   }
 

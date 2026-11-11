@@ -24,6 +24,12 @@ function validate(rules) {
     // so controllers can't accidentally save fields users must not set
     // (known as "mass assignment").
     req.body = matchedData(req, { locations: ['body'] });
+
+    // Express 5 re-reads req.query from the URL every time it's accessed, so
+    // sanitised values (e.g. page "2" -> 2) can't be written back to it.
+    // Controllers read validated query params from req.validatedQuery instead.
+    req.validatedQuery = matchedData(req, { locations: ['query'] });
+
     next();
   };
 }

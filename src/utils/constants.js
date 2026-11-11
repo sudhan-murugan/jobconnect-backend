@@ -7,4 +7,16 @@ const ROLES = Object.freeze({
   RECRUITER: 'recruiter',
 });
 
-module.exports = { ROLES };
+const JOB_TYPES = Object.freeze({
+  FULL_TIME: 'full-time',
+  PART_TIME: 'part-time',
+  REMOTE: 'remote',
+});
+
+// Pagination for GET /api/jobs
+const PAGINATION = Object.freeze({
+  DEFAULT_LIMIT: 10,
+  MAX_LIMIT: 50,
+});
+
+module.exports = { ROLES, JOB_TYPES, PAGINATION };
